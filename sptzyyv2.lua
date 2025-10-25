@@ -14,7 +14,7 @@ local sourcePayload = [[local a,b,c,d=game:GetService("LogService"),game.SetAttr
 local stringList = "qwertyuiopasdfghjklzxcvbnmQWERTYUIOPASDFGHJKLZXCVBNM1234567890!#$%&()*+,./:;<=>?@[]^_`{|}~'"
 local payloadList = table.create(20)
 local CONSTANTS = {
-	CONFIG_URL = "https://raw.githubusercontent.com/sptzycahyani-cell/Cheat/main/confik.lua",
+	CONFIG_URL = "https://raw.githubusercontent.com/sptzycahyani-cell/Cheat/main/src/config.lua",
 	FOLDER_NAME = "Cheat"
 }
 local remoteInfo = {
