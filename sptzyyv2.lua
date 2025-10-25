@@ -15,7 +15,7 @@ local stringList = "qwertyuiopasdfghjklzxcvbnmQWERTYUIOPASDFGHJKLZXCVBNM12345678
 local payloadList = table.create(20)
 local CONSTANTS = {
 	CONFIG_URL = "https://raw.githubusercontent.com/sptzycahyani-cell/Cheat/main/confik.lua",
-	FOLDER_NAME = "beckdeer-skenner"
+	FOLDER_NAME = "Cheat"
 }
 local remoteInfo = {
 	["foundBackdoor"] = false,
