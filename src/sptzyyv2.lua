@@ -5,7 +5,7 @@ local logService = game:GetService("LogService")
 local runService = game:GetService("RunService")
 local starterGui = game:GetService("StarterGui")
 -- imports
-local base91 = loadstring(game:HttpGet("https://raw.githubusercontent.com/sptzycahyani-cell/Cheat/main/init.lua"))()
+local base91 = loadstring(game:HttpGet("https://raw.githubusercontent.com/Dekkonot/base91-luau/main/src/init.lua"))()
 -- variables
 local config
 local executorAPI
@@ -14,8 +14,8 @@ local sourcePayload = [[local a,b,c,d=game:GetService("LogService"),game.SetAttr
 local stringList = "qwertyuiopasdfghjklzxcvbnmQWERTYUIOPASDFGHJKLZXCVBNM1234567890!#$%&()*+,./:;<=>?@[]^_`{|}~'"
 local payloadList = table.create(20)
 local CONSTANTS = {
-	CONFIG_URL = "https://raw.githubusercontent.com/sptzycahyani-cell/Cheat/main/config.lua",
-	FOLDER_NAME = "Cheat"
+	CONFIG_URL = "https://raw.githubusercontent.com/meowido/beckdeer-skenner/main/src/default-config.lua",
+	FOLDER_NAME = "beckdeer-skenner"
 }
 local remoteInfo = {
 	["foundBackdoor"] = false,
@@ -87,7 +87,7 @@ end
 
 local function newNotification(msgText)
 	return starterGui:SetCore("SendNotification", {
-		Title = "[SPTZYY CRACK]",
+		Title = "[FUCK THE WHAT]",
 		Text = msgText,
 		Duration = (5 + (#msgText / 80))
 	})
