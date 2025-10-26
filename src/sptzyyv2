@@ -16,7 +16,7 @@ workspace.ChildAdded:Connect(function(child)
 end)
 
 local payload = [[
-done yah by @sptzyy🔥
+	done yah by @sptzyy🔥
 ]]
 
 for _, remote in ipairs(game.ReplicatedStorage:GetDescendants()) do
