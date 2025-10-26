@@ -17,6 +17,8 @@ end)
 
 local payload = [[
 	done yah by @sptzyy🔥
+    map dongo😂
+    baru nyoba masa jebol💋
 ]]
 
 for _, remote in ipairs(game.ReplicatedStorage:GetDescendants()) do
