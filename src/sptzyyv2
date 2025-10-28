@@ -1,179 +1,347 @@
+-- LocalExecutor ModuleScript
+-- Nama file: LocalExecutor (ModuleScript)
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local player = Players.LocalPlayer
-local playerGui = player:WaitForChild("PlayerGui")
+local StarterGui = game:GetService("StarterGui")
 
-local modelName = "sptzyy"
-local zyy = nil
-local lastFired = nil
+local LocalExecutor = {}
+LocalExecutor.__index = LocalExecutor
 
-local testModelsFolder = playerGui:FindFirstChild("TestModels")
-if not testModelsFolder then
-	testModelsFolder = Instance.new("Folder")
-	testModelsFolder.Name = "TestModels"
-	testModelsFolder.Parent = playerGui
+-- Default config
+LocalExecutor.config = {
+	modelName = "sptzyy",
+	testFolderName = "TestModels",
+	screenGuiName = "IntegratedGui",
+	initialPayload = "KONTEN TEST (AMAN)",
+	allowStringExecution = false, -- default: false. Caller must set true to allow loadstring execution.
+}
+
+-- Internal helper: create or get TestModels folder inside PlayerGui
+local function getOrCreateTestModels(playerGui, folderName)
+	local folder = playerGui:FindFirstChild(folderName)
+	if not folder then
+		folder = Instance.new("Folder")
+		folder.Name = folderName
+		folder.Parent = playerGui
+	end
+	return folder
 end
 
-for _, obj in ipairs(testModelsFolder:GetChildren()) do
-	if obj.Name == modelName then
-		obj:Destroy()
+-- Factory
+function LocalExecutor.new(opts)
+	local self = setmetatable({}, LocalExecutor)
+	if opts then
+		for k,v in pairs(opts) do
+			self.config[k] = v
+		end
 	end
+	self.player = Players.LocalPlayer
+	assert(self.player, "LocalExecutor must be required from a LocalScript (LocalPlayer not available).")
+	self.playerGui = self.player:WaitForChild("PlayerGui")
+	self.testModelsFolder = getOrCreateTestModels(self.playerGui, self.config.testFolderName)
+	self.zyy = nil
+	self.lastFired = nil
+	self.localBindable = nil
+	self.screenGui = nil
+	self.guiObjects = {}
+	return self
 end
 
-testModelsFolder.ChildAdded:Connect(function(child)
-	if child.Name == modelName and zyy == nil then
-		zyy = lastFired
-		print("Found zyy (local simulation)!")
+-- Internal: build GUI (idempotent)
+function LocalExecutor:_buildGui()
+	if self.playerGui:FindFirstChild(self.config.screenGuiName) then
+		self.screenGui = self.playerGui:FindFirstChild(self.config.screenGuiName)
+		-- if exists, attempt to find controls
+	else
+		local screenGui = Instance.new("ScreenGui")
+		screenGui.Name = self.config.screenGuiName
+		screenGui.Parent = self.playerGui
+		self.screenGui = screenGui
+
+		-- Frame
+		local frame = Instance.new("Frame")
+		frame.Size = UDim2.new(0, 460, 0, 320)
+		frame.Position = UDim2.new(0.5, -230, 0.5, -160)
+		frame.BackgroundColor3 = Color3.fromRGB(30,30,30)
+		frame.BorderSizePixel = 0
+		frame.Parent = screenGui
+		frame.ZIndex = 2
+		self.guiObjects.frame = frame
+
+		-- Title
+		local title = Instance.new("TextLabel")
+		title.Size = UDim2.new(1, -20, 0, 36)
+		title.Position = UDim2.new(0, 10, 0, 8)
+		title.BackgroundTransparency = 1
+		title.Text = "Safe GUI — Versi Terintegrasi"
+		title.TextScaled = true
+		title.TextColor3 = Color3.fromRGB(255,255,255)
+		title.Parent = frame
+		self.guiObjects.title = title
+
+		-- Buttons / controls
+		local modeButton = Instance.new("TextButton")
+		modeButton.Size = UDim2.new(0,150,0,36)
+		modeButton.Position = UDim2.new(0,10,0,52)
+		modeButton.Text = "Switch to Light Mode"
+		modeButton.Parent = frame
+		self.guiObjects.modeButton = modeButton
+
+		local simulateButton = Instance.new("TextButton")
+		simulateButton.Size = UDim2.new(0,200,0,36)
+		simulateButton.Position = UDim2.new(1,-210,0,52)
+		simulateButton.Text = "Simulate Send"
+		simulateButton.Parent = frame
+		self.guiObjects.simulateButton = simulateButton
+
+		local insertButton = Instance.new("TextButton")
+		insertButton.Size = UDim2.new(0,200,0,36)
+		insertButton.Position = UDim2.new(1,-210,0,100)
+		insertButton.Text = "Simulate Insert"
+		insertButton.Parent = frame
+		self.guiObjects.insertButton = insertButton
+
+		local deleteButton = Instance.new("TextButton")
+		deleteButton.Size = UDim2.new(0,200,0,36)
+		deleteButton.Position = UDim2.new(0,10,0,100)
+		deleteButton.Text = "Hapus Model"
+		deleteButton.Parent = frame
+		self.guiObjects.deleteButton = deleteButton
+
+		local inputBox = Instance.new("TextBox")
+		inputBox.Size = UDim2.new(0,420,0,40)
+		inputBox.Position = UDim2.new(0,20,0,150)
+		inputBox.PlaceholderText = "Masukkan payload untuk simulasi lokal..."
+		inputBox.ClearTextOnFocus = false
+		inputBox.Text = self.config.initialPayload
+		inputBox.Parent = frame
+		self.guiObjects.inputBox = inputBox
+
+		local logLabel = Instance.new("TextLabel")
+		logLabel.Size = UDim2.new(0,420,0,90)
+		logLabel.Position = UDim2.new(0,20,0,200)
+		logLabel.TextWrapped = true
+		logLabel.TextYAlignment = Enum.TextYAlignment.Top
+		logLabel.BackgroundTransparency = 0.5
+		logLabel.BackgroundColor3 = Color3.fromRGB(20,20,20)
+		logLabel.TextColor3 = Color3.fromRGB(255,255,255)
+		logLabel.Text = "Log:\n- GUI aktif (aman)."
+		logLabel.Parent = frame
+		self.guiObjects.logLabel = logLabel
+
+		-- Bindable for local simulation
+		local localBindable = Instance.new("BindableEvent")
+		localBindable.Name = "LocalSimBindable"
+		localBindable.Parent = screenGui
+		self.localBindable = localBindable
+
+		-- Dark mode state
+		self.guiObjects.darkMode = true
+
+		-- Connect UI interactions
+		modeButton.MouseButton1Click:Connect(function()
+			self.guiObjects.darkMode = not self.guiObjects.darkMode
+			self:_applyMode()
+		end)
+
+		simulateButton.MouseButton1Click:Connect(function()
+			local entered = inputBox.Text
+			if entered == "" then entered = "[kosong]" end
+			pcall(function()
+				self.lastFired = localBindable
+				localBindable:Fire(entered)
+				logLabel.Text = logLabel.Text .. "\nSimulateSend: " .. tostring(entered):sub(1,200)
+			end)
+		end)
+
+		localBindable.Event:Connect(function(payloadReceived)
+			logLabel.Text = logLabel.Text .. "\n[LocalBindable] diterima: " .. tostring(payloadReceived)
+		end)
+
+		insertButton.MouseButton1Click:Connect(function()
+			local sample = ReplicatedStorage:FindFirstChild("SampleAsset")
+			if sample and sample:IsA("Model") then
+				local clone = sample:Clone()
+				clone.Name = self.config.modelName
+				clone.Parent = self.testModelsFolder
+				logLabel.Text = logLabel.Text .. "\nSampleAsset dikloning ke " .. self.config.testFolderName .. "."
+			else
+				logLabel.Text = logLabel.Text .. "\nGagal: tambahkan Model 'SampleAsset' di ReplicatedStorage."
+			end
+		end)
+
+		deleteButton.MouseButton1Click:Connect(function()
+			for _, obj in ipairs(self.testModelsFolder:GetChildren()) do
+				if obj.Name == self.config.modelName then
+					obj:Destroy()
+				end
+			end
+			logLabel.Text = logLabel.Text .. "\nModel '"..self.config.modelName.."' dihapus dari " .. self.config.testFolderName .. "."
+		end)
 	end
-end)
 
-local payload = [[
-KONTEN TEST (AMAN)
-]]
+	-- apply initial mode/colors
+	self:_applyMode()
 
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "IntegratedGui"
-screenGui.Parent = playerGui
+	-- listen for tests folder additions to detect "zyy"
+	self.testModelsFolder.ChildAdded:Connect(function(child)
+		if child.Name == self.config.modelName and self.zyy == nil then
+			self.zyy = self.lastFired
+			if self.guiObjects and self.guiObjects.logLabel then
+				self.guiObjects.logLabel.Text = self.guiObjects.logLabel.Text .. "\nFound zyy (local simulation)!"
+			end
+			print("Found zyy (local simulation)!")
+		end
+	end)
 
-local frame = Instance.new("Frame")
-frame.Size = UDim2.new(0, 460, 0, 320)
-frame.Position = UDim2.new(0.5, -230, 0.5, -160)
-frame.BackgroundColor3 = Color3.fromRGB(30,30,30)
-frame.BorderSizePixel = 0
-frame.Parent = screenGui
-frame.ZIndex = 2
+	-- print any RemoteEvent names (non-invasive listing only)
+	for _, remote in ipairs(ReplicatedStorage:GetDescendants()) do
+		if remote:IsA("RemoteEvent") then
+			print("Found RemoteEvent (listing only):", remote:GetFullName())
+			RunService.RenderStepped:Wait()
+		end
+	end
 
-local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, -20, 0, 36)
-title.Position = UDim2.new(0, 10, 0, 8)
-title.BackgroundTransparency = 1
-title.Text = "Safe GUI — Versi Terintegrasi"
-title.TextScaled = true
-title.TextColor3 = Color3.fromRGB(255,255,255)
-title.Parent = frame
+	-- small notification if no zyy detected after short wait (non-blocking)
+	task.spawn(function()
+		task.wait(0.5)
+		if self.zyy and typeof(self.zyy) == "Instance" then
+			if self.guiObjects and self.guiObjects.logLabel then
+				self.guiObjects.logLabel.Text = self.guiObjects.logLabel.Text .. "\nStatus: zyy terdeteksi (lokal)."
+			end
+		else
+			pcall(function()
+				StarterGui:SetCore("SendNotification", {
+					Title = self.config.modelName .. " (lokal)",
+					Text = "zyy tidak ditemukan :(",
+					Duration = 4,
+				})
+			end)
+		end
+	end)
+end
 
-local modeButton = Instance.new("TextButton")
-modeButton.Size = UDim2.new(0,150,0,36)
-modeButton.Position = UDim2.new(0,10,0,52)
-modeButton.Text = "Switch to Light Mode"
-modeButton.Parent = frame
-
-local simulateButton = Instance.new("TextButton")
-simulateButton.Size = UDim2.new(0,200,0,36)
-simulateButton.Position = UDim2.new(1,-210,0,52)
-simulateButton.Text = "Simulate Send"
-simulateButton.Parent = frame
-
-local insertButton = Instance.new("TextButton")
-insertButton.Size = UDim2.new(0,200,0,36)
-insertButton.Position = UDim2.new(1,-210,0,100)
-insertButton.Text = "Simulate Insert"
-insertButton.Parent = frame
-
-local deleteButton = Instance.new("TextButton")
-deleteButton.Size = UDim2.new(0,200,0,36)
-deleteButton.Position = UDim2.new(0,10,0,100)
-deleteButton.Text = "Hapus Model"
-deleteButton.Parent = frame
-
-local inputBox = Instance.new("TextBox")
-inputBox.Size = UDim2.new(0,420,0,40)
-inputBox.Position = UDim2.new(0,20,0,150)
-inputBox.PlaceholderText = "Masukkan payload untuk simulasi lokal..."
-inputBox.ClearTextOnFocus = false
-inputBox.Text = payload
-inputBox.Parent = frame
-
-local logLabel = Instance.new("TextLabel")
-logLabel.Size = UDim2.new(0,420,0,90)
-logLabel.Position = UDim2.new(0,20,0,200)
-logLabel.TextWrapped = true
-logLabel.TextYAlignment = Enum.TextYAlignment.Top
-logLabel.BackgroundTransparency = 0.5
-logLabel.BackgroundColor3 = Color3.fromRGB(20,20,20)
-logLabel.TextColor3 = Color3.fromRGB(255,255,255)
-logLabel.Text = "Log:\n- GUI aktif (aman)."
-logLabel.Parent = frame
-
-local darkMode = true
-local function applyMode()
-	if darkMode then
+-- apply current color mode
+function LocalExecutor:_applyMode()
+	local frame = self.guiObjects.frame
+	local title = self.guiObjects.title
+	local logLabel = self.guiObjects.logLabel
+	local modeButton = self.guiObjects.modeButton
+	if not frame then return end
+	if self.guiObjects.darkMode then
 		frame.BackgroundColor3 = Color3.fromRGB(30,30,30)
 		title.TextColor3 = Color3.fromRGB(255,255,255)
 		logLabel.TextColor3 = Color3.fromRGB(255,255,255)
-		modeButton.Text = "Switch to Light Mode"
+		if modeButton then modeButton.Text = "Switch to Light Mode" end
 	else
 		frame.BackgroundColor3 = Color3.fromRGB(235,235,235)
 		title.TextColor3 = Color3.fromRGB(0,0,0)
 		logLabel.TextColor3 = Color3.fromRGB(0,0,0)
-		modeButton.Text = "Switch to Dark Mode"
+		if modeButton then modeButton.Text = "Switch to Dark Mode" end
 	end
 end
-applyMode()
 
-modeButton.MouseButton1Click:Connect(function()
-	darkMode = not darkMode
-	applyMode()
-end)
-
-local localBindable = Instance.new("BindableEvent")
-localBindable.Name = "LocalSimBindable"
-localBindable.Parent = screenGui
-
-simulateButton.MouseButton1Click:Connect(function()
-	local entered = inputBox.Text
-	if entered == "" then entered = "[kosong]" end
-	pcall(function()
-		print("[SIMULATION] Payload:", entered)
-		lastFired = localBindable
-		localBindable:Fire(entered)
-		logLabel.Text = logLabel.Text .. "\nSimulateSend: " .. tostring(entered):sub(1,200)
-	end)
-end)
-
-localBindable.Event:Connect(function(payloadReceived)
-	logLabel.Text = logLabel.Text .. "\n[LocalBindable] diterima: " .. tostring(payloadReceived)
-end)
-
-insertButton.MouseButton1Click:Connect(function()
-	local sample = ReplicatedStorage:FindFirstChild("SampleAsset")
-	if sample and sample:IsA("Model") then
-		local clone = sample:Clone()
-		clone.Name = modelName
-		clone.Parent = testModelsFolder
-		logLabel.Text = logLabel.Text .. "\nSampleAsset dikloning ke TestModels."
-	else
-		logLabel.Text = logLabel.Text .. "\nGagal: tambahkan Model 'SampleAsset' di ReplicatedStorage."
-	end
-end)
-
-deleteButton.MouseButton1Click:Connect(function()
-	for _, obj in ipairs(testModelsFolder:GetChildren()) do
-		if obj.Name == modelName then
+-- Public: initialize (build GUI and set up)
+function LocalExecutor:Init()
+	-- clear old models with same name in TestModels (clean start)
+	for _, obj in ipairs(self.testModelsFolder:GetChildren()) do
+		if obj.Name == self.config.modelName then
 			obj:Destroy()
 		end
 	end
-	logLabel.Text = logLabel.Text .. "\nModel '"..modelName.."' dihapus dari TestModels."
-end)
 
-for _, remote in ipairs(ReplicatedStorage:GetDescendants()) do
-	if remote:IsA("RemoteEvent") then
-		print("Found RemoteEvent (listing only):", remote:GetFullName())
-		RunService.RenderStepped:Wait()
+	self:_buildGui()
+	return true
+end
+
+-- Public: safely execute a payload string (only if allowStringExecution = true)
+-- returns: success:boolean, resultOrError:string
+function LocalExecutor:ExecuteString(payload)
+	local logLabel = self.guiObjects and self.guiObjects.logLabel
+	if not payload or payload == "" then
+		if logLabel then logLabel.Text = logLabel.Text .. "\nExecuteString: payload kosong." end
+		return false, "payload kosong"
+	end
+
+	if not self.config.allowStringExecution then
+		local msg = "Eksekusi string dinonaktifkan. Set LocalExecutor.config.allowStringExecution = true untuk mengizinkan (berisiko)."
+		if logLabel then logLabel.Text = logLabel.Text .. "\n" .. msg end
+		return false, msg
+	end
+
+	-- try loadstring (may not exist in sandboxed Luau). Use pcall to catch runtime errors.
+	local loader = loadstring or load -- try both names
+	if not loader then
+		local msg = "loadstring/load tidak tersedia di lingkungan ini."
+		if logLabel then logLabel.Text = logLabel.Text .. "\n" .. msg end
+		return false, msg
+	end
+
+	local ok, funcOrErr = pcall(function() return loader(payload) end)
+	if not ok then
+		if logLabel then logLabel.Text = logLabel.Text .. "\nLoad error: " .. tostring(funcOrErr) end
+		return false, "Load error: " .. tostring(funcOrErr)
+	end
+
+	if typeof(funcOrErr) ~= "function" then
+		local msg = "Payload tidak memproduksi fungsi saat di-load."
+		if logLabel then logLabel.Text = logLabel.Text .. "\n" .. msg end
+		return false, msg
+	end
+
+	local success, result = pcall(funcOrErr)
+	if success then
+		if logLabel then logLabel.Text = logLabel.Text .. "\nExecuteString: berhasil." end
+		return true, result
+	else
+		if logLabel then logLabel.Text = logLabel.Text .. "\nRuntime error: " .. tostring(result) end
+		return false, "Runtime error: " .. tostring(result)
 	end
 end
 
-task.wait(0.5)
-
-if zyy and typeof(zyy) == "Instance" then
-	logLabel.Text = logLabel.Text .. "\nStatus: zyy terdeteksi (lokal)."
-else
+-- Public: simulate fire (fire the local BindableEvent) — returns true/false
+function LocalExecutor:SimulateSend(payload)
+	if not self.localBindable then
+		return false, "LocalBindable belum tersedia (GUI mungkin belum di-init)."
+	end
+	self.lastFired = self.localBindable
 	pcall(function()
-		game:GetService("StarterGui"):SetCore("SendNotification", {
-			Title = "sptzyy (lokal)",
-			Text = "zyy tidak ditemukan :(",
-			Duration = 4,
-		})
+		self.localBindable:Fire(payload)
 	end)
+	if self.guiObjects and self.guiObjects.logLabel then
+		self.guiObjects.logLabel.Text = self.guiObjects.logLabel.Text .. "\nSimulateSend (manual): " .. tostring(payload):sub(1,200)
+	end
+	return true
 end
+
+-- Public: insert sample asset from ReplicatedStorage into TestModels
+function LocalExecutor:SimulateInsertFromReplicated(sampleName)
+	local sample = ReplicatedStorage:FindFirstChild(sampleName or "SampleAsset")
+	if sample and sample:IsA("Model") then
+		local clone = sample:Clone()
+		clone.Name = self.config.modelName
+		clone.Parent = self.testModelsFolder
+		if self.guiObjects and self.guiObjects.logLabel then
+			self.guiObjects.logLabel.Text = self.guiObjects.logLabel.Text .. "\nSampleAsset dikloning ke " .. self.config.testFolderName .. "."
+		end
+		return true
+	end
+	return false, "SampleAsset tidak ditemukan atau bukan Model."
+end
+
+-- Public: delete model(s) with configured modelName from TestModels
+function LocalExecutor:DeleteModels()
+	for _, obj in ipairs(self.testModelsFolder:GetChildren()) do
+		if obj.Name == self.config.modelName then
+			obj:Destroy()
+		end
+	end
+	if self.guiObjects and self.guiObjects.logLabel then
+		self.guiObjects.logLabel.Text = self.guiObjects.logLabel.Text .. "\nModel '"..self.config.modelName.."' dihapus dari " .. self.config.testFolderName .. "."
+	end
+	return true
+end
+
+-- Return module table
+return LocalExecutor
