@@ -1,21 +1,22 @@
---[[
-  Single-file Auto Broadcast Script
-  Tempatkan: ServerScriptService (sebagai Script biasa)
-  Fungsi:
-    - Buat RemoteEvent GlobalNotification (ReplicatedStorage)
-    - Inject LocalScript ke StarterPlayerScripts (agar setiap client punya handler)
-    - Kirim notifikasi & payload otomatis ke semua pemain
-    - API internal: sendNotificationToAll(title, text, payloadTable)
---]]
+-- Single-file Safe Admin Executor
+-- Tempatkan di ServerScriptService sebagai Script
+-- Cara pakai (client): ketik chat /exec <kode-lua>
+-- Contoh: /exec return 2+2
+-- Hanya userId pada ADMINS yang bisa menjalankan
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterPlayer = game:GetService("StarterPlayer")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local ServerScriptService = game:GetService("ServerScriptService")
 
--- Nama RemoteEvent yang dipakai
-local REMOTE_NAME = "GlobalNotification"
+-- KONFIGURASI: Masukkan UserId admin di sini (gunakan angka)
+local ADMINS = {
+    [12345678] = true, -- ganti dengan UserId adminmu
+    -- [98765432] = true,
+}
+
+-- Nama RemoteEvent
+local REMOTE_NAME = "AdminExec"
 
 -- Buat atau ambil RemoteEvent
 local remote = ReplicatedStorage:FindFirstChild(REMOTE_NAME)
@@ -25,142 +26,269 @@ if not remote then
     remote.Parent = ReplicatedStorage
 end
 
--- CLIENT CODE (akan di-inject ke StarterPlayerScripts sebagai LocalScript)
+-- LocalScript (akan di-inject ke StarterPlayerScripts)
 local clientSource = [[
--- Auto-injected LocalScript: menerima GlobalNotification
+-- Auto-injected LocalScript: kirim permintaan exec lewat chat dan terima hasil
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterGui = game:GetService("StarterGui")
 local Players = game:GetService("Players")
+local player = Players.LocalPlayer
 
-local REMOTE_NAME = "GlobalNotification"
+local REMOTE_NAME = "AdminExec"
 local remote = ReplicatedStorage:WaitForChild(REMOTE_NAME)
 
--- Helper untuk menampilkan notifikasi sistem (SetCore)
-local function showNotification(title, text, duration)
+-- Tampilkan notifikasi singkat
+local function notify(title, text, duration)
     pcall(function()
         StarterGui:SetCore("SendNotification", {
-            Title = tostring(title or "Info");
-            Text = tostring(text or "");
-            Duration = duration or 5;
+            Title = tostring(title or "Info"),
+            Text = tostring(text or ""),
+            Duration = duration or 6
         })
     end)
 end
 
--- Handler payload: kamu bisa tambahkan cabang lain sesuai struktur payload
-local function handlePayload(payload)
-    if type(payload) ~= "table" then
-        return
+-- Terima hasil eksekusi dari server (hanya dikirim ke pengirim)
+remote.OnClientEvent:Connect(function(tag, payload)
+    -- payload = { success = bool, output = string, err = string }
+    if tag == "ExecResult" and type(payload) == "table" then
+        if payload.success then
+            notify("Exec: Success", tostring(payload.output or "<no output>"), 8)
+        else
+            notify("Exec: Error", tostring(payload.err or "<unknown error>"), 12)
+        end
+    elseif tag == "PrintLine" and type(payload) == "string" then
+        -- notifikasi singkat untuk setiap print dari kode
+        notify("Print", payload, 4)
     end
-
-    -- contoh: payload.action bisa "open_ui", "sound", dsb
-    if payload.action == "open_ui" and payload.uiName then
-        -- placeholder: developer bisa implementasikan pemanggilan GUI di sini
-        -- misal: game.Players.LocalPlayer.PlayerGui:FindFirstChild(payload.uiName)
-        -- showNotification("Action", "Open UI: " .. tostring(payload.uiName), 4)
-    elseif payload.action == "print" and payload.message then
-        print("[Payload Print] "..tostring(payload.message))
-    end
-    -- tambahkan handler lain sesuai kebutuhan
-end
-
--- Terima event dari server
-remote.OnClientEvent:Connect(function(title, text, payload)
-    -- tampilkan notifikasi singkat
-    local displayText = text or ""
-    -- kalau payload mengandung ringkasan, munculkan juga
-    if type(payload) == "table" and payload.summary then
-        displayText = displayText .. " ("..tostring(payload.summary)..")"
-    end
-
-    showNotification(title or "Server", displayText, (payload and payload.duration) or 5)
-
-    -- proses payload lebih lengkap di background
-    -- pcall agar client tidak crash kalau payload salah
-    pcall(function()
-        handlePayload(payload)
-    end)
 end)
 
--- Optional: Minta notifikasi saat LocalScript siap (opsional)
-local player = Players.LocalPlayer
-if player then
-    showNotification("Client Ready", "Notifikasi otomatis diaktifkan", 3)
-end
+-- Intercept chat command /exec <code>
+-- Note: Roblox may change chat API; ini memakai 'Chatted' listener di LocalPlayer
+player.Chatted:Connect(function(msg)
+    local cmd = msg:match("^/exec%s+(.+)")
+    if cmd then
+        -- kirim ke server untuk dieksekusi
+        remote:FireServer("RequestExec", cmd)
+        notify("Exec Request Sent", "Meminta server menjalankan kode...", 4)
+    end
+end)
 ]]
 
--- Inject LocalScript ke StarterPlayerScripts jika belum ada injection sebelumnya
+-- Inject LocalScript ke StarterPlayerScripts (jika belum)
 local function ensureLocalScriptInjected()
-    -- Cek apakah sudah ada LocalScript dengan tag/inisialisasi tertentu
-    local injectedMarkerName = "__AutoGlobalNotificationClient"
-    -- Cari di StarterPlayerScripts untuk mencegah duplikasi
-    local existing = StarterPlayer:FindFirstChild("StarterPlayerScripts") and StarterPlayer.StarterPlayerScripts:FindFirstChild(injectedMarkerName)
-    if existing then
-        return -- sudah diinject
-    end
-
-    -- Buat folder StarterPlayerScripts jika tidak ada (biasanya ada)
+    local injectedName = "__AdminExecClient"
     local sps = StarterPlayer:FindFirstChild("StarterPlayerScripts")
     if not sps then
         sps = Instance.new("StarterPlayerScripts")
         sps.Parent = StarterPlayer
     end
 
-    -- Buat LocalScript dan isi source
-    local localScript = Instance.new("LocalScript")
-    localScript.Name = injectedMarkerName
-    localScript.Source = clientSource
-    localScript.Parent = sps
+    if sps:FindFirstChild(injectedName) then
+        return
+    end
+
+    local ls = Instance.new("LocalScript")
+    ls.Name = injectedName
+    ls.Source = clientSource
+    ls.Parent = sps
 end
 
--- Panggil inject (hanya server side; StarterPlayerScripts akan direplikasi ke pemain baru)
 ensureLocalScriptInjected()
 
--- API server: kirim notifikasi + payload ke semua pemain
-local function sendNotificationToAll(title, text, payload)
-    -- payload boleh nil atau table
-    remote:FireAllClients(title, text, payload)
+-- Keamanan: pola terlarang yang akan menolak eksekusi
+local forbiddenPatterns = {
+    "require%s*%(",       -- akses modul luar
+    "game%.",             -- akses langsung ke game (bisa diijinkan jika kamu ingin)
+    "workspace",          -- akses workspace
+    "DataStoreService",   -- akses datastore
+    "HttpService",        -- akses http
+    "RunService",         -- akses RunService
+    "while%s+true",       -- loop tak hingga
+    "repeat%s+until%s+",  -- loop tak terkendali
+    "for%s+.-=.-do",      -- for with assignment? (konservatif)
+    "os%.",               -- akses os.* berbahaya
+    "io%.",               -- I/O file
+    "loadstring",         -- dynamic loading
+    "load%s*%(",          -- load(...)
+    "setmetatable",       -- ubah metatable
+    "getmetatable",
+    "debug",
+    "getfenv",
+    "setfenv",
+    "spawn%s*%(",         -- spawn/unsafe
+    "coroutine",          -- korutin langsung
+}
+
+-- Ambang batas panjang kode
+local MAX_CODE_LENGTH = 800  -- karakter
+
+-- Helper: validasi admin
+local function isAdmin(player)
+    if not player then return false end
+    return ADMINS[player.UserId] == true
 end
 
--- Contoh penggunaan otomatis:
--- Kirim notif awal setelah server siap
-task.spawn(function()
-    task.wait(5) -- tunggu sebentar agar world ready
-    sendNotificationToAll("Server Online", "Sistem notifikasi otomatis aktif.", {
-        summary = "Welcome",
-        duration = 6,
-        action = "print",
-        message = "Server broadcast siap"
-    })
-end)
+-- Helper: deteksi pola terlarang
+local function containsForbidden(code)
+    local lower = string.lower(code)
+    for _, pat in ipairs(forbiddenPatterns) do
+        -- cari pola (case-insensitive)
+        if string.find(lower, string.lower(pat)) then
+            return true, pat
+        end
+    end
+    return false, nil
+end
 
--- Contoh: kirim pengingat setiap N detik
-local BROADCAST_INTERVAL = 60 -- detik
-task.spawn(function()
-    while true do
-        task.wait(BROADCAST_INTERVAL)
-        sendNotificationToAll("Pengingat", "Pesan otomatis tiap "..tostring(BROADCAST_INTERVAL).." detik.", {
-            summary = "PeriodicReminder",
-            duration = 5,
-        })
+-- Buat environment (sandbox) yang aman untuk kode
+local function makeSafeEnv(replyFunction)
+    -- replyFunction(s) akan dikirim ke admin sebagai output atau print
+    local safeEnv = {}
+
+    -- Benarkan fungsi-fungsi util dasar
+    safeEnv.print = function(...)
+        local parts = {}
+        for i = 1, select("#", ...) do
+            parts[#parts+1] = tostring(select(i, ...))
+        end
+        local out = table.concat(parts, "\t")
+        -- kirim ke admin via replyFunction
+        pcall(replyFunction, out)
+    end
+
+    safeEnv.tostring = tostring
+    safeEnv.tonumber = tonumber
+    safeEnv.pairs = pairs
+    safeEnv.ipairs = ipairs
+    safeEnv.next = next
+    safeEnv.type = type
+    safeEnv.unpack = unpack or table.unpack
+    safeEnv.select = select
+
+    -- math, string, table aman (salinan referensi)
+    safeEnv.math = math
+    safeEnv.string = string
+    safeEnv.table = table
+
+    -- jangan masukkan 'os', 'io', 'debug', 'game', atau service Roblox
+
+    return safeEnv
+end
+
+-- Handler saat server menerima request dari client
+remote.OnServerEvent:Connect(function(player, tag, payload)
+    if tag ~= "RequestExec" then
+        return
+    end
+
+    -- keamanan: cek admin
+    if not isAdmin(player) then
+        remote:FireClient(player, "ExecResult", { success = false, err = "Permission denied (not admin)." })
+        return
+    end
+
+    local code = tostring(payload or "")
+
+    -- validasi panjang
+    if #code > MAX_CODE_LENGTH then
+        remote:FireClient(player, "ExecResult", { success = false, err = ("Code too long (%d > %d)").format(#code, MAX_CODE_LENGTH) })
+        return
+    end
+
+    -- blokir pola berbahaya
+    local hasBad, which = containsForbidden(code)
+    if hasBad then
+        remote:FireClient(player, "ExecResult", { success = false, err = ("Forbidden pattern detected: %s"):format(which) })
+        return
+    end
+
+    -- jika kode diawali 'return', biarkan; jika tidak, bungkus agar pcall dapat menangkap nilai return
+    local chunk = code
+    if not code:match("^%s*return") then
+        chunk = "return (" .. code .. ")"
+    end
+
+    -- buat environment terbatas
+    local outputs = {}
+    local function replyPrintLine(line)
+        -- kirim setiap print baris ke client (agar admin lihat real-time prints)
+        pcall(function()
+            remote:FireClient(player, "PrintLine", tostring(line))
+        end)
+        outputs[#outputs+1] = tostring(line)
+    end
+
+    local env = makeSafeEnv(replyPrintLine)
+
+    -- load chunk dengan env — menggunakan load (4 argumen) jika tersedia
+    local fn, loadErr
+    -- attempt load with environment (Lua 5.2+ / Luau)
+    local ok, loader = pcall(function()
+        return load(chunk, "AdminExec", "t", env)
+    end)
+    if ok then
+        fn = loader
+    else
+        -- fallback ke loadstring (older), then setfenv if available
+        fn, loadErr = loadstring(chunk)
+        if fn then
+            -- try setfenv if exists
+            if setfenv then
+                pcall(setfenv, fn, env)
+            else
+                -- cannot set env: reject for safety
+                remote:FireClient(player, "ExecResult", { success = false, err = "Cannot set sandbox environment in this runtime." })
+                return
+            end
+        else
+            remote:FireClient(player, "ExecResult", { success = false, err = "Load error: " .. tostring(loadErr or "unknown") })
+            return
+        end
+    end
+
+    -- jalankan fungsi dengan pcall dan timeout sederhana
+    local okExec, resultOrErr
+    -- jalankan dalam pcall sehingga error tertangani
+    okExec, resultOrErr = pcall(function()
+        return fn()
+    end)
+
+    -- Siapkan string output ringkas
+    if okExec then
+        local outStr = ""
+        if resultOrErr == nil then
+            outStr = table.concat(outputs, "\n")
+            if outStr == "" then outStr = "<no return>" end
+        else
+            outStr = tostring(resultOrErr)
+            if #outputs > 0 then
+                outStr = table.concat(outputs, "\n") .. "\n[Return] " .. outStr
+            end
+        end
+        remote:FireClient(player, "ExecResult", { success = true, output = outStr })
+        -- Log server-side ringkas
+        print(("[AdminExec] %s executed code: %s -> %s"):format(player.Name, string.sub(code,1,200), outStr))
+    else
+        -- error saat eksekusi
+        local errStr = tostring(resultOrErr or "unknown error")
+        remote:FireClient(player, "ExecResult", { success = false, err = errStr })
+        warn(("[AdminExec] %s code error: %s"):format(player.Name, errStr))
     end
 end)
 
--- Contoh: kirim notifikasi saat pemain join (otomatis)
-Players.PlayerAdded:Connect(function(player)
-    -- kirim ke semua pemain (atau bisa FireClient ke player saja)
-    sendNotificationToAll("Player Joined", player.Name .. " telah bergabung.", {
-        summary = "PlayerEvent",
-        duration = 5,
-        action = "print",
-        message = player.Name .. " joined at " .. os.date("%X")
-    })
-end)
+-- Optional: peringatan server ketika script siap
+print("[AdminExec] Server executor ready. Admins: ")
+for k,_ in pairs(ADMINS) do
+    print(" - userId:", k)
+end
 
--- Exposed function: admin atau bagian server lain bisa memanggil fungsi ini
--- (misal: require(script).sendNotificationToAll(...))
+-- expose API jika ingin require dari module lain
 local API = {}
-API.sendNotificationToAll = sendNotificationToAll
-API.remoteEvent = remote
+API.remote = remote
+API.isAdmin = isAdmin
+API.sendExecToAll = function(title, text)
+    remote:FireAllClients("ExecResult", { success = true, output = tostring(text) })
+end
 
--- Jika script di-require dari Script lain, kembalikan API
 return API
