@@ -1,55 +1,105 @@
-local modelName = "sptzyy"
-local zyy = nil
-local lastFired = nil
+--[[
+	WARNING: Heads up! This script has not been verified by ScriptBlox. Use at your own risk!
+]]
+local ScreenGui = Instance.new("ScreenGui")
+local Frame = Instance.new("Frame")
+local TextBox = Instance.new("TextBox")
+local ExecuteButton = Instance.new("TextButton")
+local ClearButton = Instance.new("TextButton")
+local SidePanel = Instance.new("Frame")
+local TextLabel = Instance.new("TextLabel")
+ 
+ScreenGui.Parent = game.CoreGui
+ScreenGui.Name = "Minimalism"
+ 
+Frame.Parent = ScreenGui
+Frame.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+Frame.Position = UDim2.new(0.1, 0, 0.1, 0)
+Frame.Size = UDim2.new(0, 600, 0, 400)
+ 
+TextBox.Parent = Frame
+TextBox.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+TextBox.Position = UDim2.new(0, 10, 0, 10)
+TextBox.Size = UDim2.new(0, 400, 0, 300)
+TextBox.Font = Enum.Font.SourceSans
+TextBox.Text = "--// Made by c00lkidd8/fl00xkidds"
+TextBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+TextBox.TextSize = 18
+TextBox.TextXAlignment = Enum.TextXAlignment.Left
+TextBox.TextYAlignment = Enum.TextYAlignment.Top
+TextBox.ClearTextOnFocus = false
+TextBox.MultiLine = true
+ 
+ExecuteButton.Parent = Frame
+ExecuteButton.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+ExecuteButton.Position = UDim2.new(0, 10, 1, -40)
+ExecuteButton.Size = UDim2.new(0, 100, 0, 30)
+ExecuteButton.Font = Enum.Font.SourceSans
+ExecuteButton.Text = "Execute"
+ExecuteButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+ExecuteButton.TextSize = 18
+ 
+ClearButton.Parent = Frame
+ClearButton.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+ClearButton.Position = UDim2.new(0, 120, 1, -40)
+ClearButton.Size = UDim2.new(0, 100, 0, 30)
+ClearButton.Font = Enum.Font.SourceSans
+ClearButton.Text = "Clear"
+ClearButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+ClearButton.TextSize = 18
+ 
+SidePanel.Parent = Frame
+SidePanel.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+SidePanel.Position = UDim2.new(1, -150, 0, 0)
+SidePanel.Size = UDim2.new(0, 150, 0, 400)
+ 
+TextLabel.Parent = SidePanel
+TextLabel.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+TextLabel.Position = UDim2.new(0, 10, 0, 10)
+TextLabel.Size = UDim2.new(0, 130, 0, 380)
+TextLabel.Font = Enum.Font.SourceSans
+TextLabel.Text = "loal"
+TextLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+TextLabel.TextSize = 14
+TextLabel.TextWrapped = true
+TextLabel.TextYAlignment = Enum.TextYAlignment.Top
 
-for _, obj in ipairs(workspace:GetChildren()) do
-	if obj.Name == modelName then
-		obj:Destroy()
-	end
-end
-
-workspace.ChildAdded:Connect(function(child)
-	if child.Name == modelName and zyy == nil then
-		zyy = lastFired
-		print("Found zyy!")
+ExecuteButton.MouseButton1Click:Connect(function()
+	local scriptSource = TextBox.Text
+	local func = loadstring(scriptSource)
+	if func then
+		func()
+	else
+		warn("Error in script")
 	end
 end)
-
-local payload = [[
- KONTOL MESUM😂
-]]
-
-for _, remote in ipairs(game.ReplicatedStorage:GetDescendants()) do
-	if remote:IsA("RemoteEvent") then
-		pcall(function()
-			remote:FireServer(payload)
-		end)
-		lastFired = remote
-		game:GetService("RunService").RenderStepped:Wait()
-	end
-end
-
-task.wait(0.5)
-
-if zyy and typeof(zyy) == "Instance" then
-	local playerName = game.Players.LocalPlayer.Name
-	local insertPayload = [[
-		local player = game.Players:FindFirstChild("]] .. playerName .. [[")
-		if player and player:FindFirstChild("PlayerGui") then
-			local asset = game:GetService("InsertService"):LoadAsset(73729830375562)
-			asset.Parent = player.PlayerGui
-			for _, child in ipairs(asset:GetChildren()) do
-				child.Parent = player.PlayerGui
-			end
-			asset:Destroy()
+ 
+ClearButton.MouseButton1Click:Connect(function()
+	TextBox.Text = ""
+end)
+ 
+local function scanRemotes()
+	local remotes = {}
+	for _, v in pairs(game:GetDescendants()) do
+		if v:IsA("RemoteEvent") or v:IsA("RemoteFunction") then
+			table.insert(remotes, v)
 		end
-	]]
-	zyy:FireServer(insertPayload)
-else
-	game:GetService("StarterGui"):SetCore("SendNotification", {
-		Title = "sptzyy",
-		Text = ":(",
-		Icon = "",
-		Duration = 5,
-	})
+	end
+	return remotes
+end
+ 
+local remotes = scanRemotes()
+for _, remote in ipairs(remotes) do
+	print("Found Remote: " .. remote.Name)
+end
+local function executeOnRemote(remoteName, ...)
+	for _, remote in ipairs(remotes) do
+		if remote.Name == remoteName then
+			if remote:IsA("RemoteEvent") then
+				remote:FireServer(...)
+			elseif remote:IsA("RemoteFunction") then
+				remote:InvokeServer(...)
+			end
+		end
+	end
 end
