@@ -1,55 +1,179 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
 local modelName = "sptzyy"
 local zyy = nil
 local lastFired = nil
 
-for _, obj in ipairs(workspace:GetChildren()) do
+local testModelsFolder = playerGui:FindFirstChild("TestModels")
+if not testModelsFolder then
+	testModelsFolder = Instance.new("Folder")
+	testModelsFolder.Name = "TestModels"
+	testModelsFolder.Parent = playerGui
+end
+
+for _, obj in ipairs(testModelsFolder:GetChildren()) do
 	if obj.Name == modelName then
 		obj:Destroy()
 	end
 end
 
-workspace.ChildAdded:Connect(function(child)
+testModelsFolder.ChildAdded:Connect(function(child)
 	if child.Name == modelName and zyy == nil then
 		zyy = lastFired
-		print("Found zyy!")
+		print("Found zyy (local simulation)!")
 	end
 end)
 
 local payload = [[
- KONTOL MESUM😂
+KONTEN TEST (AMAN)
 ]]
 
-for _, remote in ipairs(game.ReplicatedStorage:GetDescendants()) do
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "IntegratedGui"
+screenGui.Parent = playerGui
+
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(0, 460, 0, 320)
+frame.Position = UDim2.new(0.5, -230, 0.5, -160)
+frame.BackgroundColor3 = Color3.fromRGB(30,30,30)
+frame.BorderSizePixel = 0
+frame.Parent = screenGui
+frame.ZIndex = 2
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -20, 0, 36)
+title.Position = UDim2.new(0, 10, 0, 8)
+title.BackgroundTransparency = 1
+title.Text = "Safe GUI — Versi Terintegrasi"
+title.TextScaled = true
+title.TextColor3 = Color3.fromRGB(255,255,255)
+title.Parent = frame
+
+local modeButton = Instance.new("TextButton")
+modeButton.Size = UDim2.new(0,150,0,36)
+modeButton.Position = UDim2.new(0,10,0,52)
+modeButton.Text = "Switch to Light Mode"
+modeButton.Parent = frame
+
+local simulateButton = Instance.new("TextButton")
+simulateButton.Size = UDim2.new(0,200,0,36)
+simulateButton.Position = UDim2.new(1,-210,0,52)
+simulateButton.Text = "Simulate Send"
+simulateButton.Parent = frame
+
+local insertButton = Instance.new("TextButton")
+insertButton.Size = UDim2.new(0,200,0,36)
+insertButton.Position = UDim2.new(1,-210,0,100)
+insertButton.Text = "Simulate Insert"
+insertButton.Parent = frame
+
+local deleteButton = Instance.new("TextButton")
+deleteButton.Size = UDim2.new(0,200,0,36)
+deleteButton.Position = UDim2.new(0,10,0,100)
+deleteButton.Text = "Hapus Model"
+deleteButton.Parent = frame
+
+local inputBox = Instance.new("TextBox")
+inputBox.Size = UDim2.new(0,420,0,40)
+inputBox.Position = UDim2.new(0,20,0,150)
+inputBox.PlaceholderText = "Masukkan payload untuk simulasi lokal..."
+inputBox.ClearTextOnFocus = false
+inputBox.Text = payload
+inputBox.Parent = frame
+
+local logLabel = Instance.new("TextLabel")
+logLabel.Size = UDim2.new(0,420,0,90)
+logLabel.Position = UDim2.new(0,20,0,200)
+logLabel.TextWrapped = true
+logLabel.TextYAlignment = Enum.TextYAlignment.Top
+logLabel.BackgroundTransparency = 0.5
+logLabel.BackgroundColor3 = Color3.fromRGB(20,20,20)
+logLabel.TextColor3 = Color3.fromRGB(255,255,255)
+logLabel.Text = "Log:\n- GUI aktif (aman)."
+logLabel.Parent = frame
+
+local darkMode = true
+local function applyMode()
+	if darkMode then
+		frame.BackgroundColor3 = Color3.fromRGB(30,30,30)
+		title.TextColor3 = Color3.fromRGB(255,255,255)
+		logLabel.TextColor3 = Color3.fromRGB(255,255,255)
+		modeButton.Text = "Switch to Light Mode"
+	else
+		frame.BackgroundColor3 = Color3.fromRGB(235,235,235)
+		title.TextColor3 = Color3.fromRGB(0,0,0)
+		logLabel.TextColor3 = Color3.fromRGB(0,0,0)
+		modeButton.Text = "Switch to Dark Mode"
+	end
+end
+applyMode()
+
+modeButton.MouseButton1Click:Connect(function()
+	darkMode = not darkMode
+	applyMode()
+end)
+
+local localBindable = Instance.new("BindableEvent")
+localBindable.Name = "LocalSimBindable"
+localBindable.Parent = screenGui
+
+simulateButton.MouseButton1Click:Connect(function()
+	local entered = inputBox.Text
+	if entered == "" then entered = "[kosong]" end
+	pcall(function()
+		print("[SIMULATION] Payload:", entered)
+		lastFired = localBindable
+		localBindable:Fire(entered)
+		logLabel.Text = logLabel.Text .. "\nSimulateSend: " .. tostring(entered):sub(1,200)
+	end)
+end)
+
+localBindable.Event:Connect(function(payloadReceived)
+	logLabel.Text = logLabel.Text .. "\n[LocalBindable] diterima: " .. tostring(payloadReceived)
+end)
+
+insertButton.MouseButton1Click:Connect(function()
+	local sample = ReplicatedStorage:FindFirstChild("SampleAsset")
+	if sample and sample:IsA("Model") then
+		local clone = sample:Clone()
+		clone.Name = modelName
+		clone.Parent = testModelsFolder
+		logLabel.Text = logLabel.Text .. "\nSampleAsset dikloning ke TestModels."
+	else
+		logLabel.Text = logLabel.Text .. "\nGagal: tambahkan Model 'SampleAsset' di ReplicatedStorage."
+	end
+end)
+
+deleteButton.MouseButton1Click:Connect(function()
+	for _, obj in ipairs(testModelsFolder:GetChildren()) do
+		if obj.Name == modelName then
+			obj:Destroy()
+		end
+	end
+	logLabel.Text = logLabel.Text .. "\nModel '"..modelName.."' dihapus dari TestModels."
+end)
+
+for _, remote in ipairs(ReplicatedStorage:GetDescendants()) do
 	if remote:IsA("RemoteEvent") then
-		pcall(function()
-			remote:FireServer(payload)
-		end)
-		lastFired = remote
-		game:GetService("RunService").RenderStepped:Wait()
+		print("Found RemoteEvent (listing only):", remote:GetFullName())
+		RunService.RenderStepped:Wait()
 	end
 end
 
 task.wait(0.5)
 
 if zyy and typeof(zyy) == "Instance" then
-	local playerName = game.Players.LocalPlayer.Name
-	local insertPayload = [[
-		local player = game.Players:FindFirstChild("]] .. playerName .. [[")
-		if player and player:FindFirstChild("PlayerGui") then
-			local asset = game:GetService("InsertService"):LoadAsset(73729830375562)
-			asset.Parent = player.PlayerGui
-			for _, child in ipairs(asset:GetChildren()) do
-				child.Parent = player.PlayerGui
-			end
-			asset:Destroy()
-		end
-	]]
-	zyy:FireServer(insertPayload)
+	logLabel.Text = logLabel.Text .. "\nStatus: zyy terdeteksi (lokal)."
 else
-	game:GetService("StarterGui"):SetCore("SendNotification", {
-		Title = "sptzyy",
-		Text = ":(",
-		Icon = "",
-		Duration = 5,
-	})
+	pcall(function()
+		game:GetService("StarterGui"):SetCore("SendNotification", {
+			Title = "sptzyy (lokal)",
+			Text = "zyy tidak ditemukan :(",
+			Duration = 4,
+		})
+	end)
 end
