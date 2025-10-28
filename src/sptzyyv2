@@ -1,114 +1,166 @@
--- LocalScript (letakkan di StarterPlayerScripts)
+--[[
+  Single-file Auto Broadcast Script
+  Tempatkan: ServerScriptService (sebagai Script biasa)
+  Fungsi:
+    - Buat RemoteEvent GlobalNotification (ReplicatedStorage)
+    - Inject LocalScript ke StarterPlayerScripts (agar setiap client punya handler)
+    - Kirim notifikasi & payload otomatis ke semua pemain
+    - API internal: sendNotificationToAll(title, text, payloadTable)
+--]]
+
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local StarterPlayer = game:GetService("StarterPlayer")
+local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local ServerScriptService = game:GetService("ServerScriptService")
+
+-- Nama RemoteEvent yang dipakai
+local REMOTE_NAME = "GlobalNotification"
+
+-- Buat atau ambil RemoteEvent
+local remote = ReplicatedStorage:FindFirstChild(REMOTE_NAME)
+if not remote then
+    remote = Instance.new("RemoteEvent")
+    remote.Name = REMOTE_NAME
+    remote.Parent = ReplicatedStorage
+end
+
+-- CLIENT CODE (akan di-inject ke StarterPlayerScripts sebagai LocalScript)
+local clientSource = [[
+-- Auto-injected LocalScript: menerima GlobalNotification
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterGui = game:GetService("StarterGui")
+local Players = game:GetService("Players")
 
--- Tabel untuk menyimpan remote event yang ditemukan
-local remoteEvents = {}
--- Tabel untuk menyimpan ringkasan event yang baru saja diterima
-local recentFirings = {}
+local REMOTE_NAME = "GlobalNotification"
+local remote = ReplicatedStorage:WaitForChild(REMOTE_NAME)
 
--- Fungsi menampilkan notifikasi (sistem, bukan GUI kustom)
-local function notify(title, text, duration)
-    -- SetCore "SendNotification" hanya tersedia di LocalScript
+-- Helper untuk menampilkan notifikasi sistem (SetCore)
+local function showNotification(title, text, duration)
     pcall(function()
         StarterGui:SetCore("SendNotification", {
-            Title = title or "Info";
-            Text = text or "";
-            Duration = duration or 4;
+            Title = tostring(title or "Info");
+            Text = tostring(text or "");
+            Duration = duration or 5;
         })
     end)
 end
 
--- Scan ReplicatedStorage untuk RemoteEvent (juga bisa diubah ke folder lain)
-local function scanForRemoteEvents()
-    for _, item in ipairs(ReplicatedStorage:GetDescendants()) do
-        if item:IsA("RemoteEvent") then
-            -- hindari pengulangan
-            if not remoteEvents[item] then
-                remoteEvents[item] = true
-
-                -- koneksi OnClientEvent untuk menangkap pemanggilan dari server ke client
-                item.OnClientEvent:Connect(function(...)
-                    -- simpan ringkasan sederhana: nama event, waktu, dan arg pertama (jika ada)
-                    local args = {...}
-                    local summary = {
-                        name = item:GetFullName(),
-                        time = os.time(),
-                        firstArg = args[1],
-                    }
-                    table.insert(recentFirings, summary)
-
-                    -- notifikasi segera (singkat)
-                    local txt = "Event: "..item.Name
-                    -- sertakan arg pertama jika bukan table/function/Instance
-                    if summary.firstArg ~= nil then
-                        local argt = typeof(summary.firstArg)
-                        if argt == "string" or argt == "number" or argt == "boolean" then
-                            txt = txt .. " | Arg: " .. tostring(summary.firstArg)
-                        end
-                    end
-                    notify("RemoteEvent Fired", txt, 3)
-                end)
-            end
-        end
+-- Handler payload: kamu bisa tambahkan cabang lain sesuai struktur payload
+local function handlePayload(payload)
+    if type(payload) ~= "table" then
+        return
     end
+
+    -- contoh: payload.action bisa "open_ui", "sound", dsb
+    if payload.action == "open_ui" and payload.uiName then
+        -- placeholder: developer bisa implementasikan pemanggilan GUI di sini
+        -- misal: game.Players.LocalPlayer.PlayerGui:FindFirstChild(payload.uiName)
+        -- showNotification("Action", "Open UI: " .. tostring(payload.uiName), 4)
+    elseif payload.action == "print" and payload.message then
+        print("[Payload Print] "..tostring(payload.message))
+    end
+    -- tambahkan handler lain sesuai kebutuhan
 end
 
--- Jalankan scan pertama
-scanForRemoteEvents()
+-- Terima event dari server
+remote.OnClientEvent:Connect(function(title, text, payload)
+    -- tampilkan notifikasi singkat
+    local displayText = text or ""
+    -- kalau payload mengandung ringkasan, munculkan juga
+    if type(payload) == "table" and payload.summary then
+        displayText = displayText .. " ("..tostring(payload.summary)..")"
+    end
 
--- Jika Anda membuat RemoteEvent baru di runtime, kita bisa memantau perubahan
-ReplicatedStorage.DescendantAdded:Connect(function(desc)
-    if desc:IsA("RemoteEvent") then
-        -- singkat: panggil scan kecil untuk mendaftarkan yang baru
-        scanForRemoteEvents()
+    showNotification(title or "Server", displayText, (payload and payload.duration) or 5)
+
+    -- proses payload lebih lengkap di background
+    -- pcall agar client tidak crash kalau payload salah
+    pcall(function()
+        handlePayload(payload)
+    end)
+end)
+
+-- Optional: Minta notifikasi saat LocalScript siap (opsional)
+local player = Players.LocalPlayer
+if player then
+    showNotification("Client Ready", "Notifikasi otomatis diaktifkan", 3)
+end
+]]
+
+-- Inject LocalScript ke StarterPlayerScripts jika belum ada injection sebelumnya
+local function ensureLocalScriptInjected()
+    -- Cek apakah sudah ada LocalScript dengan tag/inisialisasi tertentu
+    local injectedMarkerName = "__AutoGlobalNotificationClient"
+    -- Cari di StarterPlayerScripts untuk mencegah duplikasi
+    local existing = StarterPlayer:FindFirstChild("StarterPlayerScripts") and StarterPlayer.StarterPlayerScripts:FindFirstChild(injectedMarkerName)
+    if existing then
+        return -- sudah diinject
+    end
+
+    -- Buat folder StarterPlayerScripts jika tidak ada (biasanya ada)
+    local sps = StarterPlayer:FindFirstChild("StarterPlayerScripts")
+    if not sps then
+        sps = Instance.new("StarterPlayerScripts")
+        sps.Parent = StarterPlayer
+    end
+
+    -- Buat LocalScript dan isi source
+    local localScript = Instance.new("LocalScript")
+    localScript.Name = injectedMarkerName
+    localScript.Source = clientSource
+    localScript.Parent = sps
+end
+
+-- Panggil inject (hanya server side; StarterPlayerScripts akan direplikasi ke pemain baru)
+ensureLocalScriptInjected()
+
+-- API server: kirim notifikasi + payload ke semua pemain
+local function sendNotificationToAll(title, text, payload)
+    -- payload boleh nil atau table
+    remote:FireAllClients(title, text, payload)
+end
+
+-- Contoh penggunaan otomatis:
+-- Kirim notif awal setelah server siap
+task.spawn(function()
+    task.wait(5) -- tunggu sebentar agar world ready
+    sendNotificationToAll("Server Online", "Sistem notifikasi otomatis aktif.", {
+        summary = "Welcome",
+        duration = 6,
+        action = "print",
+        message = "Server broadcast siap"
+    })
+end)
+
+-- Contoh: kirim pengingat setiap N detik
+local BROADCAST_INTERVAL = 60 -- detik
+task.spawn(function()
+    while true do
+        task.wait(BROADCAST_INTERVAL)
+        sendNotificationToAll("Pengingat", "Pesan otomatis tiap "..tostring(BROADCAST_INTERVAL).." detik.", {
+            summary = "PeriodicReminder",
+            duration = 5,
+        })
     end
 end)
 
--- Contoh pemrosesan per-frame dengan RunService.Heartbeat
--- Di sini kita membersihkan entri lama dan, setiap beberapa detik, menampilkan ringkasan
-local lastSummary = 0
-local SUMMARY_INTERVAL = 10 -- detik
-
-RunService.Heartbeat:Connect(function(dt)
-    -- bersihkan recentFirings lebih tua dari 60 detik
-    local now = os.time()
-    local i = 1
-    while i <= #recentFirings do
-        if now - recentFirings[i].time > 60 then
-            table.remove(recentFirings, i)
-        else
-            i = i + 1
-        end
-    end
-
-    -- interval untuk notifikasi ringkasan
-    if now - lastSummary >= SUMMARY_INTERVAL then
-        lastSummary = now
-        if #recentFirings > 0 then
-            -- buat ringkasan singkat: jumlah dan event terakhir
-            local count = #recentFirings
-            local last = recentFirings[#recentFirings]
-            local text = ("%d firing(s) in last minute. Last: %s"):format(count, last.name)
-            notify("RemoteEvent Summary", text, 4)
-        end
-    end
+-- Contoh: kirim notifikasi saat pemain join (otomatis)
+Players.PlayerAdded:Connect(function(player)
+    -- kirim ke semua pemain (atau bisa FireClient ke player saja)
+    sendNotificationToAll("Player Joined", player.Name .. " telah bergabung.", {
+        summary = "PlayerEvent",
+        duration = 5,
+        action = "print",
+        message = player.Name .. " joined at " .. os.date("%X")
+    })
 end)
 
--- Opsional: fungsi bantuan untuk daftar semua RemoteEvent yang terdaftar (debug)
-local function listRegistered()
-    local t = {}
-    for re, _ in pairs(remoteEvents) do
-        table.insert(t, re:GetFullName())
-    end
-    table.sort(t)
-    return t
-end
+-- Exposed function: admin atau bagian server lain bisa memanggil fungsi ini
+-- (misal: require(script).sendNotificationToAll(...))
+local API = {}
+API.sendNotificationToAll = sendNotificationToAll
+API.remoteEvent = remote
 
--- Contoh penggunaan: print daftar ke output (bisa dikomentari)
-for _, name in ipairs(listRegistered()) do
-    print("[Registered RemoteEvent] " .. name)
-end
-
--- Akhir skrip
+-- Jika script di-require dari Script lain, kembalikan API
+return API
