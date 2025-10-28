@@ -1,294 +1,49 @@
--- Single-file Safe Admin Executor
--- Tempatkan di ServerScriptService sebagai Script
--- Cara pakai (client): ketik chat /exec <kode-lua>
--- Contoh: /exec return 2+2
--- Hanya userId pada ADMINS yang bisa menjalankan
+-- ConnectionManager: simpan semua connection dan beri kemampuan remove by tag
+local ConnectionManager = {}
+ConnectionManager.__index = ConnectionManager
 
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local StarterPlayer = game:GetService("StarterPlayer")
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-
--- KONFIGURASI: Masukkan UserId admin di sini (gunakan angka)
-local ADMINS = {
-    [12345678] = true, -- ganti dengan UserId adminmu
-    -- [98765432] = true,
-}
-
--- Nama RemoteEvent
-local REMOTE_NAME = "AdminExec"
-
--- Buat atau ambil RemoteEvent
-local remote = ReplicatedStorage:FindFirstChild(REMOTE_NAME)
-if not remote then
-    remote = Instance.new("RemoteEvent")
-    remote.Name = REMOTE_NAME
-    remote.Parent = ReplicatedStorage
+function ConnectionManager.new()
+    return setmetatable({
+        connections = {} -- { tag -> {conn, conn, ...}, ... }
+    }, ConnectionManager)
 end
 
--- LocalScript (akan di-inject ke StarterPlayerScripts)
-local clientSource = [[
--- Auto-injected LocalScript: kirim permintaan exec lewat chat dan terima hasil
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local StarterGui = game:GetService("StarterGui")
-local Players = game:GetService("Players")
-local player = Players.LocalPlayer
-
-local REMOTE_NAME = "AdminExec"
-local remote = ReplicatedStorage:WaitForChild(REMOTE_NAME)
-
--- Tampilkan notifikasi singkat
-local function notify(title, text, duration)
-    pcall(function()
-        StarterGui:SetCore("SendNotification", {
-            Title = tostring(title or "Info"),
-            Text = tostring(text or ""),
-            Duration = duration or 6
-        })
-    end)
+-- connect dan simpan connection ke tag (tag opsional)
+function ConnectionManager:connect(event, callback, tag)
+    assert(type(callback) == "function", "callback must be function")
+    local conn = event:Connect(callback)
+    tag = tag or "__default"
+    self.connections[tag] = self.connections[tag] or {}
+    table.insert(self.connections[tag], conn)
+    return conn
 end
 
--- Terima hasil eksekusi dari server (hanya dikirim ke pengirim)
-remote.OnClientEvent:Connect(function(tag, payload)
-    -- payload = { success = bool, output = string, err = string }
-    if tag == "ExecResult" and type(payload) == "table" then
-        if payload.success then
-            notify("Exec: Success", tostring(payload.output or "<no output>"), 8)
+-- disconnect semua connections di sebuah tag
+function ConnectionManager:removeTag(tag)
+    local list = self.connections[tag]
+    if not list then return end
+    for _, conn in ipairs(list) do
+        if conn and typeof(conn) == "RBXScriptConnection" then
+            pcall(function() conn:Disconnect() end)
         else
-            notify("Exec: Error", tostring(payload.err or "<unknown error>"), 12)
-        end
-    elseif tag == "PrintLine" and type(payload) == "string" then
-        -- notifikasi singkat untuk setiap print dari kode
-        notify("Print", payload, 4)
-    end
-end)
-
--- Intercept chat command /exec <code>
--- Note: Roblox may change chat API; ini memakai 'Chatted' listener di LocalPlayer
-player.Chatted:Connect(function(msg)
-    local cmd = msg:match("^/exec%s+(.+)")
-    if cmd then
-        -- kirim ke server untuk dieksekusi
-        remote:FireServer("RequestExec", cmd)
-        notify("Exec Request Sent", "Meminta server menjalankan kode...", 4)
-    end
-end)
-]]
-
--- Inject LocalScript ke StarterPlayerScripts (jika belum)
-local function ensureLocalScriptInjected()
-    local injectedName = "__AdminExecClient"
-    local sps = StarterPlayer:FindFirstChild("StarterPlayerScripts")
-    if not sps then
-        sps = Instance.new("StarterPlayerScripts")
-        sps.Parent = StarterPlayer
-    end
-
-    if sps:FindFirstChild(injectedName) then
-        return
-    end
-
-    local ls = Instance.new("LocalScript")
-    ls.Name = injectedName
-    ls.Source = clientSource
-    ls.Parent = sps
-end
-
-ensureLocalScriptInjected()
-
--- Keamanan: pola terlarang yang akan menolak eksekusi
-local forbiddenPatterns = {
-    "require%s*%(",       -- akses modul luar
-    "game%.",             -- akses langsung ke game (bisa diijinkan jika kamu ingin)
-    "workspace",          -- akses workspace
-    "DataStoreService",   -- akses datastore
-    "HttpService",        -- akses http
-    "RunService",         -- akses RunService
-    "while%s+true",       -- loop tak hingga
-    "repeat%s+until%s+",  -- loop tak terkendali
-    "for%s+.-=.-do",      -- for with assignment? (konservatif)
-    "os%.",               -- akses os.* berbahaya
-    "io%.",               -- I/O file
-    "loadstring",         -- dynamic loading
-    "load%s*%(",          -- load(...)
-    "setmetatable",       -- ubah metatable
-    "getmetatable",
-    "debug",
-    "getfenv",
-    "setfenv",
-    "spawn%s*%(",         -- spawn/unsafe
-    "coroutine",          -- korutin langsung
-}
-
--- Ambang batas panjang kode
-local MAX_CODE_LENGTH = 800  -- karakter
-
--- Helper: validasi admin
-local function isAdmin(player)
-    if not player then return false end
-    return ADMINS[player.UserId] == true
-end
-
--- Helper: deteksi pola terlarang
-local function containsForbidden(code)
-    local lower = string.lower(code)
-    for _, pat in ipairs(forbiddenPatterns) do
-        -- cari pola (case-insensitive)
-        if string.find(lower, string.lower(pat)) then
-            return true, pat
-        end
-    end
-    return false, nil
-end
-
--- Buat environment (sandbox) yang aman untuk kode
-local function makeSafeEnv(replyFunction)
-    -- replyFunction(s) akan dikirim ke admin sebagai output atau print
-    local safeEnv = {}
-
-    -- Benarkan fungsi-fungsi util dasar
-    safeEnv.print = function(...)
-        local parts = {}
-        for i = 1, select("#", ...) do
-            parts[#parts+1] = tostring(select(i, ...))
-        end
-        local out = table.concat(parts, "\t")
-        -- kirim ke admin via replyFunction
-        pcall(replyFunction, out)
-    end
-
-    safeEnv.tostring = tostring
-    safeEnv.tonumber = tonumber
-    safeEnv.pairs = pairs
-    safeEnv.ipairs = ipairs
-    safeEnv.next = next
-    safeEnv.type = type
-    safeEnv.unpack = unpack or table.unpack
-    safeEnv.select = select
-
-    -- math, string, table aman (salinan referensi)
-    safeEnv.math = math
-    safeEnv.string = string
-    safeEnv.table = table
-
-    -- jangan masukkan 'os', 'io', 'debug', 'game', atau service Roblox
-
-    return safeEnv
-end
-
--- Handler saat server menerima request dari client
-remote.OnServerEvent:Connect(function(player, tag, payload)
-    if tag ~= "RequestExec" then
-        return
-    end
-
-    -- keamanan: cek admin
-    if not isAdmin(player) then
-        remote:FireClient(player, "ExecResult", { success = false, err = "Permission denied (not admin)." })
-        return
-    end
-
-    local code = tostring(payload or "")
-
-    -- validasi panjang
-    if #code > MAX_CODE_LENGTH then
-        remote:FireClient(player, "ExecResult", { success = false, err = ("Code too long (%d > %d)").format(#code, MAX_CODE_LENGTH) })
-        return
-    end
-
-    -- blokir pola berbahaya
-    local hasBad, which = containsForbidden(code)
-    if hasBad then
-        remote:FireClient(player, "ExecResult", { success = false, err = ("Forbidden pattern detected: %s"):format(which) })
-        return
-    end
-
-    -- jika kode diawali 'return', biarkan; jika tidak, bungkus agar pcall dapat menangkap nilai return
-    local chunk = code
-    if not code:match("^%s*return") then
-        chunk = "return (" .. code .. ")"
-    end
-
-    -- buat environment terbatas
-    local outputs = {}
-    local function replyPrintLine(line)
-        -- kirim setiap print baris ke client (agar admin lihat real-time prints)
-        pcall(function()
-            remote:FireClient(player, "PrintLine", tostring(line))
-        end)
-        outputs[#outputs+1] = tostring(line)
-    end
-
-    local env = makeSafeEnv(replyPrintLine)
-
-    -- load chunk dengan env — menggunakan load (4 argumen) jika tersedia
-    local fn, loadErr
-    -- attempt load with environment (Lua 5.2+ / Luau)
-    local ok, loader = pcall(function()
-        return load(chunk, "AdminExec", "t", env)
-    end)
-    if ok then
-        fn = loader
-    else
-        -- fallback ke loadstring (older), then setfenv if available
-        fn, loadErr = loadstring(chunk)
-        if fn then
-            -- try setfenv if exists
-            if setfenv then
-                pcall(setfenv, fn, env)
-            else
-                -- cannot set env: reject for safety
-                remote:FireClient(player, "ExecResult", { success = false, err = "Cannot set sandbox environment in this runtime." })
-                return
-            end
-        else
-            remote:FireClient(player, "ExecResult", { success = false, err = "Load error: " .. tostring(loadErr or "unknown") })
-            return
-        end
-    end
-
-    -- jalankan fungsi dengan pcall dan timeout sederhana
-    local okExec, resultOrErr
-    -- jalankan dalam pcall sehingga error tertangani
-    okExec, resultOrErr = pcall(function()
-        return fn()
-    end)
-
-    -- Siapkan string output ringkas
-    if okExec then
-        local outStr = ""
-        if resultOrErr == nil then
-            outStr = table.concat(outputs, "\n")
-            if outStr == "" then outStr = "<no return>" end
-        else
-            outStr = tostring(resultOrErr)
-            if #outputs > 0 then
-                outStr = table.concat(outputs, "\n") .. "\n[Return] " .. outStr
+            -- fallback: some frameworks return plain tables/objects
+            if type(conn) == "table" and conn.Disconnect then
+                pcall(function() conn:Disconnect() end)
             end
         end
-        remote:FireClient(player, "ExecResult", { success = true, output = outStr })
-        -- Log server-side ringkas
-        print(("[AdminExec] %s executed code: %s -> %s"):format(player.Name, string.sub(code,1,200), outStr))
-    else
-        -- error saat eksekusi
-        local errStr = tostring(resultOrErr or "unknown error")
-        remote:FireClient(player, "ExecResult", { success = false, err = errStr })
-        warn(("[AdminExec] %s code error: %s"):format(player.Name, errStr))
     end
-end)
-
--- Optional: peringatan server ketika script siap
-print("[AdminExec] Server executor ready. Admins: ")
-for k,_ in pairs(ADMINS) do
-    print(" - userId:", k)
+    self.connections[tag] = nil
 end
 
--- expose API jika ingin require dari module lain
-local API = {}
-API.remote = remote
-API.isAdmin = isAdmin
-API.sendExecToAll = function(title, text)
-    remote:FireAllClients("ExecResult", { success = true, output = tostring(text) })
+-- disconnect and clear all
+function ConnectionManager:removeAll()
+    for tag, _ in pairs(self.connections) do
+        self:removeTag(tag)
+    end
 end
 
-return API
+-- contoh pemakaian (Roblox)
+-- local cm = ConnectionManager.new()
+-- local conn1 = cm:connect(game:GetService("RunService").Heartbeat, function(dt) print("hb", dt) end, "heartbeat")
+-- cm:removeTag("heartbeat") -- disconnect heartbeat listener
+-- cm:removeAll() -- disconnect semua
