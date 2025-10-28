@@ -1,155 +1,114 @@
--- scan-owner-safe.lua
--- Versi aman: scan owner remotes, pantau model, tampilkan UI lokal jika terdeteksi.
+-- LocalScript (letakkan di StarterPlayerScripts)
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local StarterGui = game:GetService("StarterGui")
-local Players = game:GetService("Players")
 
-local modelName = "sptzyy"
-local zyy = nil
-local lastOwnerRemote = nil -- remote terakhir yang terdeteksi "owner"
-local debugPrints = true
+-- Tabel untuk menyimpan remote event yang ditemukan
+local remoteEvents = {}
+-- Tabel untuk menyimpan ringkasan event yang baru saja diterima
+local recentFirings = {}
 
--- Safety: jangan kirim payload ke server di sini
-local scanOnly = false -- <--- harus true. FireServer dinonaktifkan demi keamanan.
-
--- Ambil owner id (creator) jika tersedia
-local ownerId = nil
-pcall(function()
-    ownerId = game.CreatorId
-end)
-
-local function attrEquals(remote, attrName, value)
-    local ok, attr = pcall(function() return remote:GetAttribute(attrName) end)
-    if ok and attr ~= nil then
-        return tostring(attr) == tostring(value)
-    end
-    return false
-end
-
-local function isOwnerRemote(remote)
-    if not remote or not remote.Name then return false end
-    local name = remote.Name:lower()
-    local fullname = remote:GetFullName():lower()
-
-    -- 1) Nama mengandung kata 'owner'
-    if name:match("owner") or fullname:match("owner") then
-        return true
-    end
-
-    -- 2) Parent mengandung kata 'owner'
-    if remote.Parent and remote.Parent.Name and remote.Parent.Name:lower():match("owner") then
-        return true
-    end
-
-    -- 3) Ada attribute OwnerId/CreatorId cocok dengan creator id
-    if ownerId then
-        if attrEquals(remote, "OwnerId", ownerId) or attrEquals(remote, "CreatorId", ownerId) then
-            return true
-        end
-    end
-
-    -- 4) Ada attribute boolean "Owner" / "IsOwner"
-    if attrEquals(remote, "Owner", true) or attrEquals(remote, "IsOwner", true) then
-        return true
-    end
-
-    -- 5) Nama remote mengandung ownerId
-    if ownerId and tostring(ownerId) ~= "" and fullname:match(tostring(ownerId)) then
-        return true
-    end
-
-    return false
-end
-
--- Hapus model yang sudah ada dengan nama modelName
-for _, obj in ipairs(workspace:GetChildren()) do
-    if obj.Name == modelName then
-        if debugPrints then print("[CLEANUP] Destroying existing model:", obj:GetFullName()) end
-        pcall(function() obj:Destroy() end)
-    end
-end
-
--- Ketika model baru muncul => set zyy ke lastOwnerRemote (jika ada)
-workspace.ChildAdded:Connect(function(child)
-    if child.Name == modelName and zyy == nil then
-        zyy = lastOwnerRemote
-        if zyy and typeof(zyy) == "Instance" then
-            print("[FOUND] Model", modelName, "and zyy set to remote:", zyy:GetFullName())
-        else
-            print("[FOUND] Model", modelName, "but no owner-remote detected yet.")
-        end
-    end
-end)
-
--- Scan semua RemoteEvent di ReplicatedStorage, tandai yang kemungkinan milik owner.
-for _, remote in ipairs(game.ReplicatedStorage:GetDescendants()) do
-    if remote:IsA("RemoteEvent") then
-        local ok, ownerDetected = pcall(function() return isOwnerRemote(remote) end)
-        if not ok then
-            if debugPrints then warn("Gagal mengecek remote:", remote:GetFullName()) end
-            ownerDetected = false
-        end
-
-        if ownerDetected then
-            lastOwnerRemote = remote
-            if debugPrints then print("[OWNER REMOTE] Detected:", remote:GetFullName()) end
-            -- scanOnly true: kita TIDAK akan memanggil :FireServer()
-        else
-            if debugPrints then print("[REMOTE] Found (not owner):", remote:GetFullName()) end
-        end
-
-        -- jeda satu frame supaya tidak membebani
-        RunService.RenderStepped:Wait()
-    end
-end
-
-task.wait(0.5)
-
--- Tindakan aman ketika zyy terdeteksi: buat UI lokal untuk pemain sebagai pengganti aksi server.
-local function showLocalGuiMessage(title, text, duration)
-    local player = Players.LocalPlayer
-    if not player then return end
-
-    -- Gunakan StarterGui:SetCore untuk notifikasi jika tersedia
+-- Fungsi menampilkan notifikasi (sistem, bukan GUI kustom)
+local function notify(title, text, duration)
+    -- SetCore "SendNotification" hanya tersedia di LocalScript
     pcall(function()
         StarterGui:SetCore("SendNotification", {
-            Title = title or "Info",
-            Text = text or "",
-            Duration = duration or 5,
+            Title = title or "Info";
+            Text = text or "";
+            Duration = duration or 4;
         })
     end)
-
-    -- Juga buat ScreenGui lokal sederhana (agar terlihat di Studio / client)
-    local success, err = pcall(function()
-        local screenGui = Instance.new("ScreenGui")
-        screenGui.Name = "SafeLocalMessage"
-        screenGui.ResetOnSpawn = false
-        screenGui.Parent = player:FindFirstChild("PlayerGui") or player:WaitForChild("PlayerGui", 2)
-
-        local label = Instance.new("TextLabel")
-        label.Size = UDim2.new(0.4, 0, 0.15, 0)
-        label.Position = UDim2.new(0.3, 0, 0.05, 0)
-        label.BackgroundTransparency = 0.3
-        label.TextScaled = true
-        label.Text = text or ""
-        label.Parent = screenGui
-
-        -- Hapus setelah beberapa detik
-        delay(duration or 5, function()
-            pcall(function() screenGui:Destroy() end)
-        end)
-    end)
-    if not success and debugPrints then warn("Gagal membuat local GUI:", err) end
 end
 
-if zyy and typeof(zyy) == "Instance" then
-    -- zyy menunjuk ke Instance remote owner yang terakhir terdeteksi (TIDAK pernah di-FireServer)
-    print("[ACTION] zyy detected as remote:", zyy:GetFullName())
-    showLocalGuiMessage("sptzyy", "Owner remote ditemukan — aksi aman ditampilkan.", 6)
-else
-    showLocalGuiMessage("sptzyy", "Tidak ada owner-remote yang terdeteksi :(", 5)
+-- Scan ReplicatedStorage untuk RemoteEvent (juga bisa diubah ke folder lain)
+local function scanForRemoteEvents()
+    for _, item in ipairs(ReplicatedStorage:GetDescendants()) do
+        if item:IsA("RemoteEvent") then
+            -- hindari pengulangan
+            if not remoteEvents[item] then
+                remoteEvents[item] = true
+
+                -- koneksi OnClientEvent untuk menangkap pemanggilan dari server ke client
+                item.OnClientEvent:Connect(function(...)
+                    -- simpan ringkasan sederhana: nama event, waktu, dan arg pertama (jika ada)
+                    local args = {...}
+                    local summary = {
+                        name = item:GetFullName(),
+                        time = os.time(),
+                        firstArg = args[1],
+                    }
+                    table.insert(recentFirings, summary)
+
+                    -- notifikasi segera (singkat)
+                    local txt = "Event: "..item.Name
+                    -- sertakan arg pertama jika bukan table/function/Instance
+                    if summary.firstArg ~= nil then
+                        local argt = typeof(summary.firstArg)
+                        if argt == "string" or argt == "number" or argt == "boolean" then
+                            txt = txt .. " | Arg: " .. tostring(summary.firstArg)
+                        end
+                    end
+                    notify("RemoteEvent Fired", txt, 3)
+                end)
+            end
+        end
+    end
 end
 
--- Catatan keamanan (dicetak di output)
-print("scanOnly =", tostring(scanOnly), "-> FireServer dinonaktifkan demi keamanan.")
-print("Jika kamu butuh versi debug/pengetesan lainnya, beri tahu (tetap aman).")
+-- Jalankan scan pertama
+scanForRemoteEvents()
+
+-- Jika Anda membuat RemoteEvent baru di runtime, kita bisa memantau perubahan
+ReplicatedStorage.DescendantAdded:Connect(function(desc)
+    if desc:IsA("RemoteEvent") then
+        -- singkat: panggil scan kecil untuk mendaftarkan yang baru
+        scanForRemoteEvents()
+    end
+end)
+
+-- Contoh pemrosesan per-frame dengan RunService.Heartbeat
+-- Di sini kita membersihkan entri lama dan, setiap beberapa detik, menampilkan ringkasan
+local lastSummary = 0
+local SUMMARY_INTERVAL = 10 -- detik
+
+RunService.Heartbeat:Connect(function(dt)
+    -- bersihkan recentFirings lebih tua dari 60 detik
+    local now = os.time()
+    local i = 1
+    while i <= #recentFirings do
+        if now - recentFirings[i].time > 60 then
+            table.remove(recentFirings, i)
+        else
+            i = i + 1
+        end
+    end
+
+    -- interval untuk notifikasi ringkasan
+    if now - lastSummary >= SUMMARY_INTERVAL then
+        lastSummary = now
+        if #recentFirings > 0 then
+            -- buat ringkasan singkat: jumlah dan event terakhir
+            local count = #recentFirings
+            local last = recentFirings[#recentFirings]
+            local text = ("%d firing(s) in last minute. Last: %s"):format(count, last.name)
+            notify("RemoteEvent Summary", text, 4)
+        end
+    end
+end)
+
+-- Opsional: fungsi bantuan untuk daftar semua RemoteEvent yang terdaftar (debug)
+local function listRegistered()
+    local t = {}
+    for re, _ in pairs(remoteEvents) do
+        table.insert(t, re:GetFullName())
+    end
+    table.sort(t)
+    return t
+end
+
+-- Contoh penggunaan: print daftar ke output (bisa dikomentari)
+for _, name in ipairs(listRegistered()) do
+    print("[Registered RemoteEvent] " .. name)
+end
+
+-- Akhir skrip
